@@ -1,0 +1,6 @@
+@Przychodnia_APBD_cw6_HostAddress = http://localhost:5130
+
+GET {{Przychodnia_APBD_cw6_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
