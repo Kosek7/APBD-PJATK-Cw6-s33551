@@ -114,4 +114,79 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
 
         return dto;
     }
+    
+    public async Task<int> CreateAppointmentAsync(CreateAppointmentRequestDto dto)
+{
+    if (dto.AppointmentDate < DateTime.Now)
+        throw new Exception("Appointment date cannot be in the past");
+
+    if (string.IsNullOrWhiteSpace(dto.Reason) || dto.Reason.Length > 250)
+        throw new Exception("Invalid reason");
+
+    await using var connection = new SqlConnection(configuration.GetConnectionString("DefaultConnection"));
+    await connection.OpenAsync();
+
+    var patientCmd = new SqlCommand(@"
+        SELECT IsActive
+        FROM Patients
+        WHERE IdPatient = @Id
+    ", connection);
+
+    patientCmd.Parameters.Add("@Id", SqlDbType.Int).Value = dto.IdPatient;
+
+    var patient = await patientCmd.ExecuteScalarAsync();
+
+    if (patient == null)
+        throw new Exception("Patient not found");
+
+    if (!(bool)patient)
+        throw new Exception("Patient not active");
+
+    var doctorCmd = new SqlCommand(@"
+        SELECT IsActive
+        FROM Doctors
+        WHERE IdDoctor = @Id
+    ", connection);
+
+    doctorCmd.Parameters.Add("@Id", SqlDbType.Int).Value = dto.IdDoctor;
+
+    var doctor = await doctorCmd.ExecuteScalarAsync();
+
+    if (doctor == null)
+        throw new Exception("Doctor not found");
+
+    if (!(bool)doctor)
+        throw new Exception("Doctor not active");
+
+    var conflictCmd = new SqlCommand(@"
+        SELECT COUNT(*)
+        FROM Appointments
+        WHERE IdDoctor = @Doctor
+          AND AppointmentDate = @Date
+    ", connection);
+
+    conflictCmd.Parameters.Add("@Doctor", SqlDbType.Int).Value = dto.IdDoctor;
+    conflictCmd.Parameters.Add("@Date", SqlDbType.DateTime2).Value = dto.AppointmentDate;
+
+    var exists = (int)await conflictCmd.ExecuteScalarAsync();
+
+    if (exists > 0)
+        throw new Exception("Doctor already has appointment at this time");
+
+    var insertCmd = new SqlCommand(@"
+        INSERT INTO Appointments
+        (IdPatient, IdDoctor, AppointmentDate, Status, Reason)
+        VALUES
+        (@Patient, @Doctor, @Date, 'Scheduled', @Reason);
+
+        SELECT SCOPE_IDENTITY();
+    ", connection);
+
+    insertCmd.Parameters.Add("@Patient", SqlDbType.Int).Value = dto.IdPatient;
+    insertCmd.Parameters.Add("@Doctor", SqlDbType.Int).Value = dto.IdDoctor;
+    insertCmd.Parameters.Add("@Date", SqlDbType.DateTime2).Value = dto.AppointmentDate;
+    insertCmd.Parameters.Add("@Reason", SqlDbType.NVarChar, 250).Value = dto.Reason;
+
+    return Convert.ToInt32(await insertCmd.ExecuteScalarAsync());
+}
 }

@@ -35,8 +35,25 @@ public class AppointmentsController : ControllerBase
         var result = await _service.GetAppointment(id);
         
         if (result == null)
-            return NotFound(new ErrorResponseDto { Message = "Not found" });
+            return NotFound(new ErrorResponseDto { Message = "Appointment not found" });
 
         return Ok(result);
+    }
+    
+    [HttpPost]
+    public async Task<IActionResult> Create(CreateAppointmentRequestDto dto)
+    {
+        try
+        {
+            var id = await _service.CreateAppointmentAsync(dto);
+            return Created($"/api/appointments/{id}", new { id });
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message.Contains("already has appointment"))
+                return Conflict(new ErrorResponseDto { Message = ex.Message });
+
+            return BadRequest(new ErrorResponseDto { Message = ex.Message });
+        }
     }
 }
