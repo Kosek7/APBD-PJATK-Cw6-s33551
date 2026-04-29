@@ -29,10 +29,10 @@ public class AppointmentsController : ControllerBase
             return Ok(result);
         }
 
-    [HttpGet("{id:int}")]
-    public async Task<IActionResult> GetAppointment(int id)
+    [HttpGet("{idAppointment:int}")]
+    public async Task<IActionResult> GetAppointment(int idAppointment)
     {
-        var result = await _service.GetAppointment(id);
+        var result = await _service.GetAppointment(idAppointment);
         
         if (result == null)
             return NotFound(new ErrorResponseDto { Message = "Appointment not found" });
@@ -51,6 +51,46 @@ public class AppointmentsController : ControllerBase
         catch (Exception ex)
         {
             if (ex.Message.Contains("already has appointment"))
+                return Conflict(new ErrorResponseDto { Message = ex.Message });
+
+            return BadRequest(new ErrorResponseDto { Message = ex.Message });
+        }
+    }
+    
+    [HttpPut("{idAppointment:int}")]
+    public async Task<IActionResult> Update(int idAppointment, UpdateAppointmentRequestDto dto)
+    {
+        try
+        {
+            await _service.UpdateAppointmentAsync(idAppointment, dto);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message.Contains("not found"))
+                return NotFound(new ErrorResponseDto { Message = ex.Message });
+
+            if (ex.Message.Contains("already has appointment"))
+                return Conflict(new ErrorResponseDto { Message = ex.Message });
+
+            return BadRequest(new ErrorResponseDto { Message = ex.Message });
+        }
+    }
+    
+    [HttpDelete("{idAppointment:int}")]
+    public async Task<IActionResult> Delete(int idAppointment)
+    {
+        try
+        {
+            await _service.DeleteAppointmentAsync(idAppointment);
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            if (ex.Message.Contains("not found"))
+                return NotFound(new ErrorResponseDto { Message = ex.Message });
+
+            if (ex.Message.Contains("completed"))
                 return Conflict(new ErrorResponseDto { Message = ex.Message });
 
             return BadRequest(new ErrorResponseDto { Message = ex.Message });

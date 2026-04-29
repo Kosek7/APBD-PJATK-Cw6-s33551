@@ -189,4 +189,128 @@ public class AppointmentService(IConfiguration configuration) : IAppointmentServ
 
     return Convert.ToInt32(await insertCmd.ExecuteScalarAsync());
 }
+    
+    public async Task UpdateAppointmentAsync(int id, UpdateAppointmentRequestDto dto)
+{
+    await using var connection = new SqlConnection(configuration.GetConnectionString("DefaultConnection"));
+    await connection.OpenAsync();
+
+    var getCmd = new SqlCommand(@"
+        SELECT Status, IdDoctor
+        FROM Appointments
+        WHERE IdAppointment = @Id
+    ", connection);
+
+    getCmd.Parameters.Add("@Id", SqlDbType.Int).Value = id;
+
+    await using var reader = await getCmd.ExecuteReaderAsync();
+
+    if (!await reader.ReadAsync())
+        throw new Exception("Appointment not found");
+
+    var currentStatus = reader.GetString(0);
+
+    await reader.CloseAsync();
+
+    if (dto.Status != "Scheduled" &&
+        dto.Status != "Completed" &&
+        dto.Status != "Cancelled")
+        throw new Exception("Invalid status");
+
+    if (currentStatus == "Completed" && dto.AppointmentDate != default)
+        throw new Exception("Cannot modify completed appointment time");
+
+    var patientCmd = new SqlCommand(@"
+        SELECT IsActive FROM Patients WHERE IdPatient = @Id
+    ", connection);
+
+    patientCmd.Parameters.Add("@Id", SqlDbType.Int).Value = dto.IdPatient;
+
+    var patient = await patientCmd.ExecuteScalarAsync();
+
+    if (patient == null) throw new Exception("Patient not found");
+    if (!(bool)patient) throw new Exception("Patient not active");
+
+    var doctorCmd = new SqlCommand(@"
+        SELECT IsActive FROM Doctors WHERE IdDoctor = @Id
+    ", connection);
+
+    doctorCmd.Parameters.Add("@Id", SqlDbType.Int).Value = dto.IdDoctor;
+
+    var doctor = await doctorCmd.ExecuteScalarAsync();
+
+    if (doctor == null) throw new Exception("Doctor not found");
+    if (!(bool)doctor) throw new Exception("Doctor not active");
+
+    var conflictCmd = new SqlCommand(@"
+        SELECT COUNT(*)
+        FROM Appointments
+        WHERE IdDoctor = @Doctor
+          AND AppointmentDate = @Date
+          AND IdAppointment <> @Id
+    ", connection);
+
+    conflictCmd.Parameters.Add("@Doctor", SqlDbType.Int).Value = dto.IdDoctor;
+    conflictCmd.Parameters.Add("@Date", SqlDbType.DateTime2).Value = dto.AppointmentDate;
+    conflictCmd.Parameters.Add("@Id", SqlDbType.Int).Value = id;
+
+    var conflict = (int)await conflictCmd.ExecuteScalarAsync();
+
+    if (conflict > 0)
+        throw new Exception("Doctor already has appointment at this time");
+
+    var updateCmd = new SqlCommand(@"
+        UPDATE Appointments
+        SET IdPatient = @Patient,
+            IdDoctor = @Doctor,
+            AppointmentDate = @Date,
+            Status = @Status,
+            Reason = @Reason,
+            InternalNotes = @Notes
+        WHERE IdAppointment = @Id
+    ", connection);
+
+    updateCmd.Parameters.Add("@Patient", SqlDbType.Int).Value = dto.IdPatient;
+    updateCmd.Parameters.Add("@Doctor", SqlDbType.Int).Value = dto.IdDoctor;
+    updateCmd.Parameters.Add("@Date", SqlDbType.DateTime2).Value = dto.AppointmentDate;
+    updateCmd.Parameters.Add("@Status", SqlDbType.NVarChar, 30).Value = dto.Status;
+    updateCmd.Parameters.Add("@Reason", SqlDbType.NVarChar, 250).Value = dto.Reason;
+    updateCmd.Parameters.Add("@Notes", SqlDbType.NVarChar, 500).Value = (object?)dto.InternalNotes ?? DBNull.Value;
+    updateCmd.Parameters.Add("@Id", SqlDbType.Int).Value = id;
+
+    await updateCmd.ExecuteNonQueryAsync();
+}
+    
+    public async Task DeleteAppointmentAsync(int id)
+    {
+        await using var connection = new SqlConnection(configuration.GetConnectionString("DefaultConnection"));
+        await connection.OpenAsync();
+
+        var checkCmd = new SqlCommand(@"
+        SELECT Status
+        FROM Appointments
+        WHERE IdAppointment = @Id
+    ", connection);
+
+        checkCmd.Parameters.Add("@Id", SqlDbType.Int).Value = id;
+
+        var statusObj = await checkCmd.ExecuteScalarAsync();
+
+        if (statusObj == null)
+            throw new Exception("Appointment not found");
+
+        var status = (string)statusObj;
+
+        if (status == "Completed")
+            throw new Exception("Cannot delete completed appointment");
+
+        var deleteCmd = new SqlCommand(@"
+        DELETE FROM Appointments
+        WHERE IdAppointment = @Id
+    ", connection);
+
+        deleteCmd.Parameters.Add("@Id", SqlDbType.Int).Value = id;
+
+        await deleteCmd.ExecuteNonQueryAsync();
+    }
 }
